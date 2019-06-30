@@ -50,4 +50,4 @@ MAR_SZ_HZ_MSG2 = 'start and end date all need input.'
 HSGT_TEMP = ['DateTime', 'GGHSMoney', 'GGSSMoney', 'HSMoney', 'SSMoney', 'NorthMoney', 'SouthSumMoney']
 HSGT_COLS = ['date', 'ggt_ss', 'ggt_sz', 'hgt', 'sgt', 'north_money', 'south_money']
 HSGT_REF = '%sdata.%s/hsgt/%s'
-HSGT_DATA = '%sdcfm.%s/EM_MutiSvcExpandInterface/api/js/get?type=HSGTZJZS&token=70f12f2f4f091e459a279469fe49eca5'
+HSGT_DATA = '%sdcfm.%s/EM_MutiSvcExpandInterface/api/js/get?type=HSGTZJZS&token=70f12f2f4f091e459a279469fe49eca5&ps=10000'

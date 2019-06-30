@@ -34,7 +34,7 @@ def ma(data, n=10, val_name="close"):
 
     for index, row in data.iterrows():
         values.append(row[val_name])
-        if len(values) == n:
+        if len(values) == n+1:
             del values[0]
 
         MA.append(np.average(values))

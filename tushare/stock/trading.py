@@ -28,6 +28,79 @@ try:
 except ImportError:
     from urllib2 import urlopen, Request
 
+def get_hist_cash(code=None, retry_count=3, pause=0.001):
+    """
+        获取当日分笔明细数据
+    Parameters
+    ------
+        code:string
+                  股票代码 e.g. 600848
+        retry_count : int, 默认 3
+                  如遇网络等问题重复执行的次数
+        pause : int, 默认 0
+                 重复请求数据过程中暂停的秒数，防止请求间隔时间太短出现的问题
+     return
+     -------
+        DataFrame 当日所有股票交易数据(DataFrame)
+              属性:成交时间、成交价格、价格变动，成交手、成交金额(元)，买卖类型
+    """
+    if code is None or len(code)!=6 :
+        return None
+    date = du.today()
+    for _ in range(retry_count):
+        time.sleep(pause)
+        try:
+            url = 'http://quotes.money.163.com/trade/lszjlx_%s.html#01b08' % (code)
+            print(url)
+            html = lxml.html.parse(url)
+            res = html.xpath('//div[@class=\"innner_box\"]/div[@class=\"mod_pages\"]/a[@href]')
+            if ct.PY3:
+                sarr = [etree.tostring(node).decode('utf-8') for node in res]
+            else:
+                sarr = [etree.tostring(node) for node in res]
+            a_tags = ''.join(sarr[-2])
+            html_context = '<html><body>%s</body></html>'%a_tags
+            element = etree.parse(StringIO(html_context))
+            a_text = element.xpath('//a/text()')
+            a_text = "".join(a_text)
+            data = pd.DataFrame()
+            ct._write_head()
+            for pNo in range(0, int(a_text)):
+                data = data.append(_hist_cash(code, pNo, retry_count, pause))
+        except Exception as er:
+            print(str(er))
+        else:
+            return data
+    raise IOError(ct.NETWORK_URL_ERROR_MSG)
+
+
+def _hist_cash(code=None, pageNo=None, retry_count=3, pause=0.001, ignore_index=True):
+    ct._write_console()
+    for _ in range(retry_count):
+        time.sleep(pause)
+        try:
+            url = 'http://quotes.money.163.com/trade/lszjlx_%s,%d.html'%(code, pageNo)
+            print(url)
+            html = lxml.html.parse(url)
+            # res = html.xpath('//table[@id=\"datatbl\"]/tbody/tr')
+            res = html.xpath('//table[@class=\"table_bg001 border_box\"]/tr')
+            if ct.PY3:
+                sarr = [etree.tostring(node).decode('utf-8') for node in res]
+            else:
+                sarr = [etree.tostring(node) for node in res]
+            sarr = ''.join(sarr)
+            sarr = '<table>%s</table>'%sarr
+            sarr = sarr.replace('--', '0')
+            df = pd.read_html(StringIO(sarr), parse_dates=False)[0]
+            df.columns = ['date', 'close', 'change', 'tun', 'inflow', 'outflow', 'pureinflow', 'maininflow', 'mainoutflow', 'puremaininflow']
+            df['change'] = df['change'].map(lambda x : x.replace('%', ''))
+            df['tun'] = df['tun'].map(lambda x: x.replace('%', ''))
+        except Exception as e:
+            print(e)
+        else:
+            return df
+    raise IOError(ct.NETWORK_URL_ERROR_MSG)
+
 
 def get_hist_data(code=None, start=None, end=None,
                   ktype='D', retry_count=3,
@@ -252,14 +325,19 @@ def get_today_ticks(code=None, retry_count=3, pause=0.001):
     for _ in range(retry_count):
         time.sleep(pause)
         try:
+            print(ct.TODAY_TICKS_PAGE_URL % (ct.P_TYPE['http'], ct.DOMAINS['vsf'],
+                                                       ct.PAGES['jv'], date,
+                                                       symbol))
             request = Request(ct.TODAY_TICKS_PAGE_URL % (ct.P_TYPE['http'], ct.DOMAINS['vsf'],
                                                        ct.PAGES['jv'], date,
                                                        symbol))
             data_str = urlopen(request, timeout=10).read()
             data_str = data_str.decode('GBK')
             data_str = data_str[1:-1]
+            print(data_str)
             data_str = eval(data_str, type('Dummy', (dict,), 
                                            dict(__getitem__ = lambda s, n:n))())
+            print(data_str)
             data_str = json.dumps(data_str)
             data_str = json.loads(data_str)
             pages = len(data_str['detailPages'])
@@ -300,8 +378,161 @@ def _today_ticks(symbol, tdate, pageNo, retry_count, pause):
         else:
             return df
     raise IOError(ct.NETWORK_URL_ERROR_MSG)
-        
-    
+def get_hist_top10_sh(retry_count=3, pause=0.001):
+    """
+        获取当日分笔明细数据
+    Parameters
+    ------
+        retry_count : int, 默认 3
+                  如遇网络等问题重复执行的次数
+        pause : int, 默认 0
+                 重复请求数据过程中暂停的秒数，防止请求间隔时间太短出现的问题
+     return
+     -------
+        DataFrame 当日所有股票交易数据(DataFrame)
+              属性:成交时间、成交价格、价格变动，成交手、成交金额(元)，买卖类型
+    """
+    for _ in range(retry_count):
+        time.sleep(pause)
+        try:
+            request = Request("http://hqdata.jrj.com.cn/hgt/top10_sh_1year.js")
+            data_str = urlopen(request, timeout=10).read()
+            data_str = data_str.decode('GBK')
+            data_str = data_str[19:-1]
+            data_str = eval(data_str, type('Dummy', (dict,),
+                                           dict(__getitem__ = lambda s, n:n))())
+            data_str = json.dumps(data_str)
+            data_str = json.loads(data_str)
+            column = list(data_str['Column'].keys())
+            df = pd.read_json(json.dumps(data_str['Data']))
+            df.columns = column
+            values = []
+            for index, row in df.iterrows():
+                values.append(int(row['BuyAmount']) - int(row['SellAmount']))
+            pure = np.asarray(values)
+            df['Pure'] = pure
+        except Exception as er:
+            print(str(er))
+        else:
+            return df
+    raise IOError(ct.NETWORK_URL_ERROR_MSG)
+def get_hist_top10_sz(retry_count=3, pause=0.001):
+    """
+        获取当日分笔明细数据
+    Parameters
+    ------
+        retry_count : int, 默认 3
+                  如遇网络等问题重复执行的次数
+        pause : int, 默认 0
+                 重复请求数据过程中暂停的秒数，防止请求间隔时间太短出现的问题
+     return
+     -------
+        DataFrame 当日所有股票交易数据(DataFrame)
+              属性:成交时间、成交价格、价格变动，成交手、成交金额(元)，买卖类型
+    """
+    for _ in range(retry_count):
+        time.sleep(pause)
+        try:
+            request = Request("http://hqdata.jrj.com.cn/sgt/top10_sz_1year.js")
+            data_str = urlopen(request, timeout=10).read()
+            data_str = data_str.decode('GBK')
+            data_str = data_str[19:-1]
+            data_str = eval(data_str, type('Dummy', (dict,),
+                                           dict(__getitem__ = lambda s, n:n))())
+            data_str = json.dumps(data_str)
+            data_str = json.loads(data_str)
+            column = list(data_str['Column'].keys())
+            df = pd.read_json(json.dumps(data_str['Data']))
+            df.columns = column
+            values = []
+            for index, row in df.iterrows():
+                values.append(int(row['BuyAmount']) - int(row['SellAmount']))
+            pure = np.asarray(values)
+            df['Pure'] = pure
+        except Exception as er:
+            print(str(er))
+        else:
+            return df
+    raise IOError(ct.NETWORK_URL_ERROR_MSG)
+
+def get_hist_rzrq(code=None, retry_count=3, pause=0.001):
+    """
+        获取当日分笔明细数据
+    Parameters
+    ------
+        retry_count : int, 默认 3
+                  如遇网络等问题重复执行的次数
+        pause : int, 默认 0
+                 重复请求数据过程中暂停的秒数，防止请求间隔时间太短出现的问题
+     return
+     -------
+        DataFrame 当日所有股票交易数据(DataFrame)
+              属性:成交时间、成交价格、价格变动，成交手、成交金额(元)，买卖类型
+    """
+    for _ in range(retry_count):
+        time.sleep(pause)
+        df = pd.DataFrame()
+        try:
+            url = 'http://api.dataide.eastmoney.com/data/get_rzrq_ggmx?code=%06s&orderby=date&order=desc&pageindex=%d&pagesize=%d'%(code,1,1)
+            print(url)
+            request = Request(url)
+            data_str = urlopen(request, timeout=10).read()
+            data_str = data_str.decode('utf-8')
+            data_str = eval(data_str, type('Dummy', (dict,),
+                                           dict(__getitem__ = lambda s, n:n))())
+            data_str = json.dumps(data_str)
+            data_str = json.loads(data_str)
+            total = data_str['total']
+            # column = list(data_str['data'][0].keys())
+            url = 'http://api.dataide.eastmoney.com/data/get_rzrq_ggmx?code=%06s&orderby=date&order=desc&pageindex=%d&pagesize=%d'%(code, 1, total)
+            print(url)
+            request = Request(url)
+            data_str = urlopen(request, timeout=10).read()
+            data_str = data_str.decode('utf-8')
+            data_str = eval(data_str, type('Dummy', (dict,),
+                                           dict(__getitem__=lambda s, n: n))())
+            data_str = json.dumps(data_str)
+            data_str = json.loads(data_str)
+
+            df = pd.read_json(json.dumps(data_str['data']))
+            df.columns = ['date', 'market', 'rchange10dcp', 'rchange3dcp', 'rchange5dcp', 'rqchl',
+                          'rqchl10d', 'rqchl3d', 'rqchl5d', 'rqjmg', 'rqjmg10d', 'rqjmg3d',
+                          'rqjmg5d', 'rqmcl', 'rqmcl10d', 'rqmcl3d', 'rqmcl5d', 'rqye',
+                          'rqyl', 'rzche', 'rzche10d', 'rzche3d', 'rzche5d', 'rzjme',
+                          'rzjme10d', 'rzjme3d', 'rzjme5d', 'rzmre', 'rzmre10d', 'rzmre3d',
+                          'rzmre5d', 'rzrqye', 'rzrqyecz', 'rzye', 'rzyezb', 'scode',
+                          'secname', 'spj', 'sz', 'zdf']
+            '''
+            融资融券余额、融资净买入、融资买入、融资卖出
+             ['date', 'market', 'rchange10dcp', 'rchange3dcp', 'rchange5dcp', 'rqchl',
+                          'rqchl10d', 'rqchl3d', 'rqchl5d', 'rqjmg', 'rqjmg10d', 'rqjmg3d',
+                          'rqjmg5d', 'rqmcl', 'rqmcl10d', 'rqmcl3d', 'rqmcl5d', 'rqye',
+                          'rqyl', 'rzche', 'rzche10d', 'rzche3d', 'rzche5d', 'rzjme',
+                          'rzjme10d', 'rzjme3d', 'rzjme5d', 'rzmre', 'rzmre10d', 'rzmre3d',
+                          'rzmre5d', 'rzrqye', 'rzrqyecz', 'rzye', 'rzyezb', 'scode',
+                          'secname', 'spj', 'sz', 'zdf']
+            '''
+            df['date'] = df['date'].map(lambda x: str(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime((int(x.timestamp()))))))
+            df['date'] = df['date'].map(lambda x: x[0:10])
+            df = df[['date','secname','scode','spj','zdf','rzrqye','rzjme','rzjme3d','rzjme5d','rzjme10d']]
+            df = df[['date', 'secname', 'scode', 'spj', 'zdf', 'rzrqye', 'rzjme']]
+            df['rzjme'] = df['rzjme'].map(lambda x: x if isinstance(x,float) else float(0))
+        except Exception as er:
+            print(str(er))
+        else:
+            return df
+    raise IOError(ct.NETWORK_URL_ERROR_MSG)
+# if __name__ == "__main__":
+#     code = '002415'
+#     code = '600703'
+#     df = get_hist_top10_sz()
+#     # df = df.groupby(['StockCode']).sum()
+#     # df = df.sort_index(by=['Pure'],ascending=False)
+#     df.to_csv('sz_top10.csv',encoding='GBK')
+#     print(df.head())
+#     df = get_hist_rzrq('002415')
+#     df.to_csv('rzrq-002415.csv',encoding='GBK')
+
 def get_today_all():
     """
         一次性获取最近一个日交易日所有股票的交易数据

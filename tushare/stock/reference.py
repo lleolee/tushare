@@ -885,8 +885,9 @@ def moneyflow_hsgt():
     north_money: 北向资金流入
     south_money: 南向资金流入
     """
-    clt = Client(rv.HSGT_DATA%(ct.P_TYPE['http'], ct.DOMAINS['em']), 
+    clt = Client(rv.HSGT_DATA%(ct.P_TYPE['http'], ct.DOMAINS['em']),
                         ref=rv.HSGT_REF%(ct.P_TYPE['http'], ct.DOMAINS['em'], ct.PAGES['index']))
+    print(rv.HSGT_DATA%(ct.P_TYPE['http'], ct.DOMAINS['em']))
     content = clt.gvalue()
     content = content.decode('utf-8') if ct.PY3 else content
     js = json.loads(content)
